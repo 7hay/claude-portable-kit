@@ -1,0 +1,97 @@
+name: Security Check
+
+# push と PR のたびに自動実行。手動実行も可能。
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      # 1. リポジトリをチェックアウト
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 全履歴を取得（誤コミット履歴チェックに必要）
+
+      # 2. 機密ファイルの誤コミットチェック
+      - name: Check for committed secrets
+        run: |
+          echo "--- Checking for committed secret files ---"
+          FOUND=0
+
+          # .env ファイルが git 管理されていないか確認
+          if git ls-files | grep -qE "^\.env$|^\.env\."; then
+            echo "❌ .env file is tracked by git!"
+            FOUND=1
+          fi
+
+          # 秘密鍵ファイルが git 管理されていないか確認
+          if git ls-files | grep -qE "\.(key|pem|p12)$"; then
+            echo "❌ Secret key file is tracked by git!"
+            git ls-files | grep -E "\.(key|pem|p12)$"
+            FOUND=1
+          fi
+
+          if [ $FOUND -eq 0 ]; then
+            echo "✅ No committed secret files found"
+          else
+            exit 1
+          fi
+
+      # 3. プロンプトインジェクション文字列のスキャン
+      - name: Scan for prompt injection strings
+        run: |
+          echo "--- Scanning for prompt injection strings ---"
+          SUSPICIOUS=$(grep -r \
+            "ignore previous instructions\|jailbreak\|override safety\|forget your instructions" \
+            --include="*.md" --include="*.txt" --include="*.json" \
+            --exclude-dir=".git" \
+            -l . 2>/dev/null || true)
+
+          if [ -n "$SUSPICIOUS" ]; then
+            echo "⚠️  Suspicious strings found in:"
+            echo "$SUSPICIOUS"
+            echo "Please review these files manually."
+            # 警告のみ（exit 1 にはしない。CLAUDE.md の説明文等で誤検知あり）
+          else
+            echo "✅ No suspicious strings found"
+          fi
+
+      # 4. 平文シークレットの簡易チェック
+      - name: Check for hardcoded secrets
+        run: |
+          echo "--- Checking for hardcoded secrets ---"
+          FOUND=$(grep -r \
+            "password\s*=\s*['\"][^'\"]\+['\"]" \
+            --include="*.py" --include="*.js" --include="*.ts" \
+            --exclude-dir=".git" --exclude-dir="node_modules" \
+            --exclude-dir=".venv" --exclude-dir="target" \
+            -l . 2>/dev/null || true)
+
+          if [ -n "$FOUND" ]; then
+            echo "⚠️  Possible hardcoded password in:"
+            echo "$FOUND"
+            echo "Please review these files manually."
+            # 警告のみ（誤検知の可能性があるため）
+          else
+            echo "✅ No hardcoded secrets found"
+          fi
+
+      # 5. gitleaks によるシークレットスキャン
+      # コミュニティが継続更新する200種類以上のパターンで検出
+      # （APIキー・AWSキー・GitHubトークン等）
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: echo "✅ Security check completed"

@@ -1,0 +1,11 @@
+__pycache__/
+.pytest_cache/
+.codegraph/
+# local-only list of personal patterns for tests/test_no_personal_info.py
+.personal-patterns
+# secrets must never be committed
+.env
+.env.*
+*.key
+*.pem
+secrets/
