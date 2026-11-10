@@ -34,7 +34,7 @@ Skill は Claude Code 公式形式（`~/.claude/skills/<名前>/SKILL.md`）な�
 
 ```bash
 mkdir -p ~/Project && cd ~/Project
-git clone https://github.com/<your-account>/claude-portable-kit.git
+git clone https://github.com/7hay/claude-portable-kit.git
 cd claude-portable-kit
 ```
 
